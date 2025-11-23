@@ -5,7 +5,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
-#include "Kismet/GameplayStatics.h" // [추가] 레벨 재시작(사망 처리)용
+#include "Kismet/GameplayStatics.h"
 
 ACTR_PlayerCharacter::ACTR_PlayerCharacter()
 {
@@ -14,13 +14,22 @@ ACTR_PlayerCharacter::ACTR_PlayerCharacter()
 	MoveDistance = 100.0f;
 	CurrentScore = 0;
 	MaxForwardDistance = 10.0f;
-	GetCharacterMovement()->MaxStepHeight = 0.0f;
-	bCanMove = true;
 
-	// [★ 초기화]
+	// 맵 좌우 한계 (기본 5칸 정도 여유)
+	MaxSideDistance = 500.0f;
+
+	// 낮은 장애물을 밟고 올라가지 못하게 설정
+	GetCharacterMovement()->MaxStepHeight = 0.0f;
+
+	// 회전 관련 설정 강제 적용
+	bUseControllerRotationYaw = false;
+	GetCharacterMovement()->bOrientRotationToMovement = false;
+	GetCharacterMovement()->bUseControllerDesiredRotation = false;
+
+	bCanMove = true;
 	bIsOnLog = false;
 	bIsDead = false;
-	LogSpeed = 150.0f; // 블루프린트의 통나무 속도와 똑같이 맞추세요!
+	LogSpeed = 150.0f;
 }
 
 void ACTR_PlayerCharacter::BeginPlay()
@@ -36,22 +45,20 @@ void ACTR_PlayerCharacter::BeginPlay()
 	}
 }
 
-// [★ 매 프레임 실행]
 void ACTR_PlayerCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	if (bIsDead) return; // 죽었으면 아무것도 안 함
+	if (bIsDead) return;
 
 	// 1. 발밑 검사
 	CheckFloor();
 
-	// 2. 통나무 위에 있다면? -> 통나무 속도만큼 같이 이동!
+	// 2. 통나무 위에 있다면 같이 이동
 	if (bIsOnLog)
 	{
-		// Y축(옆)으로 이동 (통나무 방향에 따라 부호 +/- 확인 필요)
-		// 만약 통나무가 왼쪽으로 가면 -LogSpeed 로 바꾸세요.
-		//AddActorWorldOffset(FVector(0.0f, LogSpeed * DeltaTime, 0.0f));
+		// 통나무 방향에 따라 부호(+/-) 조절 필요
+		// AddActorWorldOffset(FVector(0.0f, LogSpeed * DeltaTime, 0.0f));
 	}
 }
 
@@ -68,39 +75,76 @@ void ACTR_PlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 	}
 }
 
-void ACTR_PlayerCharacter::MoveForward(const FInputActionValue& Value) { TryMove(GetActorForwardVector()); }
-void ACTR_PlayerCharacter::MoveLeft(const FInputActionValue& Value) { TryMove(-GetActorRightVector()); }
+// 1. 'W' 키 -> 화면상 왼쪽 (월드 X축)
+void ACTR_PlayerCharacter::MoveForward(const FInputActionValue& Value)
+{
+	TryMove(FVector::ForwardVector);
+}
 
+// 2. 'A' 키 -> 화면상 뒤로 (월드 -Y축)
+void ACTR_PlayerCharacter::MoveLeft(const FInputActionValue& Value)
+{
+	TryMove(FVector::LeftVector);
+}
+
+// 3. 'D' 키 -> 화면상 전진 (월드 Y축) -> 점수 획득
 void ACTR_PlayerCharacter::MoveRight(const FInputActionValue& Value)
 {
-	if (TryMove(GetActorRightVector()))
+	if (TryMove(FVector::RightVector))
 	{
+		// 전진 방향(Y축) 좌표로 점수 계산
 		float CurrentY = GetActorLocation().Y;
+
 		if (CurrentY > MaxForwardDistance)
 		{
 			CurrentScore++;
 			MaxForwardDistance = CurrentY;
+			// UE_LOG(LogTemp, Warning, TEXT("Score: %d"), CurrentScore);
+
+			// [★ 추가됨] 점수가 올랐다는 건 앞으로 갔다는 뜻! 맵을 더 깔아라!
+			RequestSpawnTile();
 		}
 	}
 }
 
-void ACTR_PlayerCharacter::MoveBackward(const FInputActionValue& Value) { TryMove(-GetActorForwardVector()); }
+// 4. 'S' 키 -> 화면상 오른쪽 (월드 -X축)
+void ACTR_PlayerCharacter::MoveBackward(const FInputActionValue& Value)
+{
+	TryMove(FVector::BackwardVector);
+}
 
+// [핵심 이동 로직]
 bool ACTR_PlayerCharacter::TryMove(FVector Direction)
 {
 	if (!bCanMove || bIsDead) return false;
 
+	// 1. 캐릭터 회전
+	SetActorRotation(Direction.Rotation());
+
 	FVector StartLocation = GetActorLocation();
 	FVector EndLocation = StartLocation + (Direction * MoveDistance);
 
+	// 2. 맵 밖으로 나갔는지(낭떠러지) 검사 - X축 기준 (W, S 방향)
+	if (FMath::Abs(EndLocation.X) > MaxSideDistance)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Fall out of map!"));
+		TargetLocation = EndLocation; // 허공으로 이동
+		SetActorLocation(TargetLocation);
+
+		GameOver(); // 사망 처리
+		return false;
+	}
+
+	// 3. 장애물 검사 (LineTrace)
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(this);
 
 	FHitResult HitResult;
 	bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, StartLocation, EndLocation, ECC_Visibility, Params);
 
-	if (bHit) return false;
+	if (bHit) return false; // 막힘
 
+	// 4. 이동 수행
 	TargetLocation = EndLocation;
 	SetActorLocation(TargetLocation);
 	Jump();
@@ -116,11 +160,10 @@ void ACTR_PlayerCharacter::ResetMove()
 	bCanMove = true;
 }
 
-// [★ 발밑 검사 함수 구현]
 void ACTR_PlayerCharacter::CheckFloor()
 {
 	FVector Start = GetActorLocation();
-	FVector End = Start - FVector(0, 0, 150.0f); // 발 아래로 넉넉하게 레이저 발사
+	FVector End = Start - FVector(0, 0, 150.0f);
 
 	FHitResult HitResult;
 	FCollisionQueryParams Params;
@@ -132,19 +175,15 @@ void ACTR_PlayerCharacter::CheckFloor()
 	{
 		AActor* HitActor = HitResult.GetActor();
 
-		// 1. 통나무("Log")를 밟았을 때
 		if (HitActor && HitActor->ActorHasTag("Log"))
 		{
 			bIsOnLog = true;
-			// UE_LOG(LogTemp, Warning, TEXT("통나무 탑승!"));
 		}
-		// 2. 물("Water")을 밟았을 때 (BP_RiverTile 태그 설정 필수!)
 		else if (HitActor && HitActor->ActorHasTag("Water"))
 		{
 			bIsOnLog = false;
-			GameOver(); // 사망!
+			GameOver();
 		}
-		// 3. 그냥 땅(도로, 풀밭)일 때
 		else
 		{
 			bIsOnLog = false;
@@ -152,20 +191,16 @@ void ACTR_PlayerCharacter::CheckFloor()
 	}
 	else
 	{
-		// 공중에 떠 있거나 바닥이 없을 때
 		bIsOnLog = false;
 	}
 }
 
-// [★ 사망 처리 함수]
 void ACTR_PlayerCharacter::GameOver()
 {
-	if (bIsDead) return; // 이미 죽었으면 중복 실행 방지
+	if (bIsDead) return;
 
 	bIsDead = true;
-	UE_LOG(LogTemp, Error, TEXT("으악! 물에 빠졌다! Game Over"));
+	UE_LOG(LogTemp, Error, TEXT("Game Over!"));
 
-	// 여기서 "Game Over" 위젯을 띄우거나 레벨을 재시작하면 됩니다.
-	// 지금은 바로 레벨 재시작 (죽으면 처음부터)
 	UGameplayStatics::OpenLevel(this, FName(*GetWorld()->GetName()), false);
 }

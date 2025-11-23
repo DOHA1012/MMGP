@@ -40,6 +40,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Movement")
 	float MoveDistance;
 
+	// 맵의 좌우 한계 거리 (이보다 멀어지면 사망)
+	UPROPERTY(EditAnywhere, Category = "Movement")
+	float MaxSideDistance;
+
 	// 연타 방지용
 	bool bCanMove;
 	FTimerHandle MoveTimerHandle;
@@ -49,10 +53,10 @@ protected:
 	int32 CurrentScore;
 	float MaxForwardDistance;
 
-	// --- [★ 강/통나무 시스템 추가 변수] ---
-	bool bIsOnLog;           // 지금 통나무 위에 있는가?
-	float LogSpeed;          // 통나무 속도 (블루프린트와 맞춰야 함, 예: 150.0)
-	bool bIsDead;            // 죽었는지 확인
+	// --- [강/통나무 시스템 변수] ---
+	bool bIsOnLog;
+	float LogSpeed;
+	bool bIsDead;
 
 public:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -67,7 +71,10 @@ protected:
 	bool TryMove(FVector Direction);
 	void ResetMove();
 
-	// --- [★ 강/통나무 시스템 추가 함수] ---
-	void CheckFloor();       // 내 발밑에 뭐가 있는지 확인
-	void GameOver();         // 물에 빠지면 호출
+	void CheckFloor();
+	void GameOver();
+
+	// [★ 추가됨] 블루프린트로 "맵 깔아줘!" 신호 보내는 함수
+	UFUNCTION(BlueprintImplementableEvent)
+	void RequestSpawnTile();
 };
