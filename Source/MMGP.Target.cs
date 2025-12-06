@@ -11,5 +11,9 @@ public class MMGPTarget : TargetRules
 		DefaultBuildSettings = BuildSettingsVersion.V5;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_6;
 		ExtraModuleNames.Add("MMGP");
-	}
+        if (Target.Platform == UnrealTargetPlatform.Android)
+        {
+            bWarningsAsErrors = false;
+        }
+    }
 }
