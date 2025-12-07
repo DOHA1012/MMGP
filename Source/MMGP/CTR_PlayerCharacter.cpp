@@ -7,8 +7,8 @@
 #include "DrawDebugHelpers.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
-#include "Components/CapsuleComponent.h" 
-#include "Blueprint/UserWidget.h" // 위젯 헤더 필수!
+#include "Components/CapsuleComponent.h"
+#include "Blueprint/UserWidget.h"
 
 ACTR_PlayerCharacter::ACTR_PlayerCharacter()
 {
@@ -16,10 +16,9 @@ ACTR_PlayerCharacter::ACTR_PlayerCharacter()
 
 	MoveDistance = 100.0f;
 	CurrentScore = 0;
-	MaxForwardDistance = 10.0f;
-	MaxSideDistance = 500.0f;
+	MaxForwardDistance = 10.0f;  // 이름은 ForwardDistance지만, 이제 Y축(오른쪽) 거리를 저장하는 용도로 씁니다.
+	MaxSideDistance = 500.0f;    // 도로 폭 (X축 방향 제한)
 
-	// 타이머 초기값 (60초)
 	TimeLeft = 60.0f;
 
 	GetCharacterMovement()->MaxStepHeight = 0.0f;
@@ -45,19 +44,16 @@ void ACTR_PlayerCharacter::BeginPlay()
 			Subsystem->AddMappingContext(DefaultMappingContext, 0);
 		}
 
-		// 마우스 터치 활성화 (테스트용)
 		PlayerController->bShowMouseCursor = true;
 		PlayerController->bEnableClickEvents = true;
 		PlayerController->bEnableTouchEvents = true;
 	}
 
-	// [★핵심] C++에서 타이머 위젯 생성 및 화면 부착
 	if (TimerWidgetClass)
 	{
 		TimerWidgetInstance = CreateWidget<UUserWidget>(GetWorld(), TimerWidgetClass);
 		if (TimerWidgetInstance)
 		{
-			// ZOrder 10으로 설정하여 점수판보다 위에 보이게 함
 			TimerWidgetInstance->AddToViewport(10);
 		}
 	}
@@ -71,30 +67,18 @@ void ACTR_PlayerCharacter::Tick(float DeltaTime)
 
 	CheckFloor();
 
-	// [★핵심] 타이머 감소 로직
 	if (TimeLeft > 0.0f)
 	{
 		TimeLeft -= DeltaTime;
-
-		// 블루프린트로 현재 시간 값을 보내줌 (UI 갱신용)
 		UpdateTimerUI(TimeLeft);
 
-		// 시간이 다 되면 게임 오버
 		if (TimeLeft <= 0.0f)
 		{
 			TimeLeft = 0.0f;
 			GameOver();
 		}
 	}
-
-	if (bIsOnLog)
-	{
-		// 통나무 이동 로직 (필요시 활성화)
-		// AddActorWorldOffset(FVector(0.0f, LogSpeed * DeltaTime, 0.0f));
-	}
 }
-
-// ---------------------- 입력 및 이동 로직 ----------------------
 
 void ACTR_PlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
@@ -107,11 +91,10 @@ void ACTR_PlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 		EnhancedInputComponent->BindAction(MoveRightAction, ETriggerEvent::Started, this, &ACTR_PlayerCharacter::MoveRight);
 		EnhancedInputComponent->BindAction(MoveBackwardAction, ETriggerEvent::Started, this, &ACTR_PlayerCharacter::MoveBackward);
 	}
-	// 터치 바인딩
 	PlayerInputComponent->BindTouch(IE_Pressed, this, &ACTR_PlayerCharacter::OnTouchPressed);
 }
 
-// 터치 이동 로직
+// [입력 방향 유지] 요청하신 대로 입력 로직은 그대로 둡니다.
 void ACTR_PlayerCharacter::OnTouchPressed(const ETouchIndex::Type FingerIndex, const FVector Location)
 {
 	if (bIsDead) return;
@@ -130,51 +113,62 @@ void ACTR_PlayerCharacter::OnTouchPressed(const ETouchIndex::Type FingerIndex, c
 
 	if (FMath::Abs(Direction.X) > FMath::Abs(Direction.Y))
 	{
-		if (Direction.X > 0) MoveRight(FInputActionValue());
-		else MoveLeft(FInputActionValue());
+		// 가로 터치
+		if (Direction.X > 0) MoveBackward(FInputActionValue());
+		else MoveForward(FInputActionValue());
 	}
 	else
 	{
-		if (Direction.Y < 0) MoveForward(FInputActionValue());
-		else MoveBackward(FInputActionValue());
+		// 세로 터치
+		// 화면 위를 누르면 MoveRight가 호출됩니다. -> 아래 MoveRight 함수에서 점수를 올립니다.
+		if (Direction.Y < 0) MoveRight(FInputActionValue());
+		else MoveLeft(FInputActionValue());
 	}
 }
 
-// 이동 함수들
-void ACTR_PlayerCharacter::MoveForward(const FInputActionValue& Value) { TryMove(FVector::ForwardVector); }
-void ACTR_PlayerCharacter::MoveLeft(const FInputActionValue& Value) { TryMove(FVector::LeftVector); }
+// [수정됨] MoveRight가 이제 '전진(점수획득)' 역할을 합니다.
 void ACTR_PlayerCharacter::MoveRight(const FInputActionValue& Value)
 {
+	// Y축(Right)으로 이동 시도
 	if (TryMove(FVector::RightVector))
 	{
+		// Y좌표 기준으로 점수 계산 (오른쪽으로 갈수록 Y값이 커짐)
 		float CurrentY = GetActorLocation().Y;
+
+		// 기존 MaxForwardDistance 변수를 재활용하여 Y축 기록을 저장
 		if (CurrentY > MaxForwardDistance)
 		{
 			CurrentScore++;
-			MaxForwardDistance = CurrentY;
-			RequestSpawnTile();
+			MaxForwardDistance = CurrentY; // 최고 기록 갱신
+			RequestSpawnTile(); // 맵 생성 요청
 		}
 	}
 }
+
+// 나머지 이동 함수는 점수 로직 없이 이동만 수행
+void ACTR_PlayerCharacter::MoveForward(const FInputActionValue& Value) { TryMove(FVector::ForwardVector); }
+void ACTR_PlayerCharacter::MoveLeft(const FInputActionValue& Value) { TryMove(FVector::LeftVector); }
 void ACTR_PlayerCharacter::MoveBackward(const FInputActionValue& Value) { TryMove(FVector::BackwardVector); }
 
 bool ACTR_PlayerCharacter::TryMove(FVector Direction)
 {
 	if (!bCanMove || bIsDead) return false;
+
 	SetActorRotation(Direction.Rotation());
 
 	FVector StartLocation = GetActorLocation();
 	FVector EndLocationXY = StartLocation + (Direction * MoveDistance);
 
+	// [★수정됨] 사망 체크 기준 변경
+	// 게임이 오른쪽(Y축)으로 진행되므로, 낭떠러지는 앞/뒤(X축)를 검사해야 합니다.
 	if (FMath::Abs(EndLocationXY.X) > MaxSideDistance)
 	{
 		TargetLocation = EndLocationXY;
 		SetActorLocation(TargetLocation);
-		GameOver();
+		GameOver(); // 도로 밖으로 나감 (낙사)
 		return false;
 	}
 
-	// 높이 보정 로직
 	FVector TraceStart = FVector(EndLocationXY.X, EndLocationXY.Y, StartLocation.Z + 500.0f);
 	FVector TraceEnd = FVector(EndLocationXY.X, EndLocationXY.Y, StartLocation.Z - 500.0f);
 	FHitResult HitResult;
@@ -182,6 +176,7 @@ bool ACTR_PlayerCharacter::TryMove(FVector Direction)
 	Params.AddIgnoredActor(this);
 
 	bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, TraceStart, TraceEnd, ECC_Visibility, Params);
+
 	if (bHit)
 	{
 		float NewZ = HitResult.ImpactPoint.Z + GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
@@ -193,8 +188,10 @@ bool ACTR_PlayerCharacter::TryMove(FVector Direction)
 	}
 
 	SetActorLocation(TargetLocation);
+
 	bCanMove = false;
 	GetWorld()->GetTimerManager().SetTimer(MoveTimerHandle, this, &ACTR_PlayerCharacter::ResetMove, 0.15f, false);
+
 	return true;
 }
 
@@ -207,16 +204,23 @@ void ACTR_PlayerCharacter::CheckFloor()
 	FHitResult HitResult;
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(this);
+
 	bool bHit = GetWorld()->LineTraceSingleByChannel(HitResult, Start, End, ECC_Visibility, Params);
 
 	if (bHit)
 	{
 		AActor* HitActor = HitResult.GetActor();
-		if (HitActor && HitActor->ActorHasTag("Log")) bIsOnLog = true;
-		else if (HitActor && HitActor->ActorHasTag("Water")) { bIsOnLog = false; GameOver(); }
-		else bIsOnLog = false;
+		if (HitActor)
+		{
+			if (HitActor->ActorHasTag("Log")) bIsOnLog = true;
+			else if (HitActor->ActorHasTag("Water")) { bIsOnLog = false; GameOver(); }
+			else bIsOnLog = false;
+		}
 	}
-	else bIsOnLog = false;
+	else
+	{
+		bIsOnLog = false;
+	}
 }
 
 void ACTR_PlayerCharacter::GameOver()
@@ -224,4 +228,9 @@ void ACTR_PlayerCharacter::GameOver()
 	if (bIsDead) return;
 	bIsDead = true;
 	UE_LOG(LogTemp, Error, TEXT("Game Over!"));
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->SetCinematicMode(true, false, false, true, true);
+	}
 }
