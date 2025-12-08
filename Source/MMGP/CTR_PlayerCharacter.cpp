@@ -16,8 +16,8 @@ ACTR_PlayerCharacter::ACTR_PlayerCharacter()
 
 	MoveDistance = 100.0f;
 	CurrentScore = 0;
-	MaxForwardDistance = 10.0f;  // 이름은 ForwardDistance지만, 이제 Y축(오른쪽) 거리를 저장하는 용도로 씁니다.
-	MaxSideDistance = 500.0f;    // 도로 폭 (X축 방향 제한)
+	MaxForwardDistance = 10.0f;
+	MaxSideDistance = 250.0f;
 
 	TimeLeft = 60.0f;
 
@@ -29,6 +29,7 @@ ACTR_PlayerCharacter::ACTR_PlayerCharacter()
 	bCanMove = true;
 	bIsOnLog = false;
 	bIsDead = false;
+
 	LogSpeed = 150.0f;
 	MinSwipeDistance = 50.0f;
 }
@@ -91,11 +92,35 @@ void ACTR_PlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 		EnhancedInputComponent->BindAction(MoveRightAction, ETriggerEvent::Started, this, &ACTR_PlayerCharacter::MoveRight);
 		EnhancedInputComponent->BindAction(MoveBackwardAction, ETriggerEvent::Started, this, &ACTR_PlayerCharacter::MoveBackward);
 	}
+
+	// [★수정됨] 터치 입력 바인딩
 	PlayerInputComponent->BindTouch(IE_Pressed, this, &ACTR_PlayerCharacter::OnTouchPressed);
+
+	// [★추가됨] 마우스 클릭 바인딩 (설정 껐을 때 대비)
+	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &ACTR_PlayerCharacter::OnMouseClicked);
 }
 
-// [입력 방향 유지] 요청하신 대로 입력 로직은 그대로 둡니다.
+// [모바일] 터치 좌표를 받아서 처리
 void ACTR_PlayerCharacter::OnTouchPressed(const ETouchIndex::Type FingerIndex, const FVector Location)
+{
+	ProcessScreenInput(FVector2D(Location.X, Location.Y));
+}
+
+// [PC] 마우스 좌표를 찾아서 처리
+void ACTR_PlayerCharacter::OnMouseClicked()
+{
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		float MouseX, MouseY;
+		if (PC->GetMousePosition(MouseX, MouseY))
+		{
+			ProcessScreenInput(FVector2D(MouseX, MouseY));
+		}
+	}
+}
+
+// [★핵심] 좌표를 기반으로 이동 방향 결정 (터치/마우스 공용)
+void ACTR_PlayerCharacter::ProcessScreenInput(const FVector2D InputLocation)
 {
 	if (bIsDead) return;
 	APlayerController* PC = Cast<APlayerController>(GetController());
@@ -103,14 +128,11 @@ void ACTR_PlayerCharacter::OnTouchPressed(const ETouchIndex::Type FingerIndex, c
 
 	int32 ScreenX, ScreenY;
 	PC->GetViewportSize(ScreenX, ScreenY);
-	float TouchX, TouchY;
-	bool bIsPressed;
-	PC->GetInputTouchState(FingerIndex, TouchX, TouchY, bIsPressed);
 
 	FVector2D Center(ScreenX / 2.0f, ScreenY / 2.0f);
-	FVector2D TouchLoc(TouchX, TouchY);
-	FVector2D Direction = TouchLoc - Center;
+	FVector2D Direction = InputLocation - Center;
 
+	// 가로(X) vs 세로(Y) 변화량 비교
 	if (FMath::Abs(Direction.X) > FMath::Abs(Direction.Y))
 	{
 		// 가로 터치
@@ -120,32 +142,25 @@ void ACTR_PlayerCharacter::OnTouchPressed(const ETouchIndex::Type FingerIndex, c
 	else
 	{
 		// 세로 터치
-		// 화면 위를 누르면 MoveRight가 호출됩니다. -> 아래 MoveRight 함수에서 점수를 올립니다.
 		if (Direction.Y < 0) MoveRight(FInputActionValue());
 		else MoveLeft(FInputActionValue());
 	}
 }
 
-// [수정됨] MoveRight가 이제 '전진(점수획득)' 역할을 합니다.
 void ACTR_PlayerCharacter::MoveRight(const FInputActionValue& Value)
 {
-	// Y축(Right)으로 이동 시도
 	if (TryMove(FVector::RightVector))
 	{
-		// Y좌표 기준으로 점수 계산 (오른쪽으로 갈수록 Y값이 커짐)
 		float CurrentY = GetActorLocation().Y;
-
-		// 기존 MaxForwardDistance 변수를 재활용하여 Y축 기록을 저장
 		if (CurrentY > MaxForwardDistance)
 		{
 			CurrentScore++;
-			MaxForwardDistance = CurrentY; // 최고 기록 갱신
-			RequestSpawnTile(); // 맵 생성 요청
+			MaxForwardDistance = CurrentY;
+			RequestSpawnTile();
 		}
 	}
 }
 
-// 나머지 이동 함수는 점수 로직 없이 이동만 수행
 void ACTR_PlayerCharacter::MoveForward(const FInputActionValue& Value) { TryMove(FVector::ForwardVector); }
 void ACTR_PlayerCharacter::MoveLeft(const FInputActionValue& Value) { TryMove(FVector::LeftVector); }
 void ACTR_PlayerCharacter::MoveBackward(const FInputActionValue& Value) { TryMove(FVector::BackwardVector); }
@@ -159,13 +174,15 @@ bool ACTR_PlayerCharacter::TryMove(FVector Direction)
 	FVector StartLocation = GetActorLocation();
 	FVector EndLocationXY = StartLocation + (Direction * MoveDistance);
 
-	// [★수정됨] 사망 체크 기준 변경
-	// 게임이 오른쪽(Y축)으로 진행되므로, 낭떠러지는 앞/뒤(X축)를 검사해야 합니다.
+	// 격자 정렬 (100단위)
+	EndLocationXY.X = FMath::RoundToFloat(EndLocationXY.X / MoveDistance) * MoveDistance;
+	EndLocationXY.Y = FMath::RoundToFloat(EndLocationXY.Y / MoveDistance) * MoveDistance;
+
 	if (FMath::Abs(EndLocationXY.X) > MaxSideDistance)
 	{
 		TargetLocation = EndLocationXY;
 		SetActorLocation(TargetLocation);
-		GameOver(); // 도로 밖으로 나감 (낙사)
+		GameOver();
 		return false;
 	}
 
@@ -179,6 +196,12 @@ bool ACTR_PlayerCharacter::TryMove(FVector Direction)
 
 	if (bHit)
 	{
+		AActor* HitActor = HitResult.GetActor();
+		if (HitActor && HitActor->ActorHasTag("Wall"))
+		{
+			return false;
+		}
+
 		float NewZ = HitResult.ImpactPoint.Z + GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 		TargetLocation = FVector(EndLocationXY.X, EndLocationXY.Y, NewZ + 2.0f);
 	}
@@ -188,7 +211,6 @@ bool ACTR_PlayerCharacter::TryMove(FVector Direction)
 	}
 
 	SetActorLocation(TargetLocation);
-
 	bCanMove = false;
 	GetWorld()->GetTimerManager().SetTimer(MoveTimerHandle, this, &ACTR_PlayerCharacter::ResetMove, 0.15f, false);
 
@@ -227,10 +249,7 @@ void ACTR_PlayerCharacter::GameOver()
 {
 	if (bIsDead) return;
 	bIsDead = true;
-	UE_LOG(LogTemp, Error, TEXT("Game Over!"));
+	UE_LOG(LogTemp, Error, TEXT("Game Over triggered! Calling Blueprint Sequence."));
 
-	if (APlayerController* PC = Cast<APlayerController>(GetController()))
-	{
-		PC->SetCinematicMode(true, false, false, true, true);
-	}
+	StartGameOverSequence();
 }
