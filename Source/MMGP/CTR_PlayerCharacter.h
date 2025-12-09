@@ -22,28 +22,23 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	// --- [입력 시스템 (Enhanced Input)] ---
+	// --- [입력] ---
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputMappingContext* DefaultMappingContext;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* MoveForwardAction;
-
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* MoveLeftAction;
-
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* MoveRightAction;
-
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	UInputAction* MoveBackwardAction;
 
-	// --- [터치 설정] ---
-	// * 참고: 앞서 작성한 C++ 코드는 스와이프가 아닌 터치 위치(화면 위/아래/좌/우)를 감지합니다.
 	UPROPERTY(EditAnywhere, Category = "Input|Touch")
 	float MinSwipeDistance;
 
-	// --- [타이머 시스템] ---
+	// --- [타이머] ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Game|Timer")
 	float TimeLeft;
 
@@ -53,19 +48,18 @@ protected:
 	UPROPERTY()
 	UUserWidget* TimerWidgetInstance;
 
-	// C++에서 호출하면 블루프린트 위젯의 시간을 업데이트하는 함수
 	UFUNCTION(BlueprintImplementableEvent, Category = "Game|Timer")
 	void UpdateTimerUI(float CurrentTime);
 
-	// --- [이동 및 게임플레이 변수] ---
+	// --- [이동 및 점수] ---
 	UPROPERTY(BlueprintReadOnly, Category = "Movement")
 	FVector TargetLocation;
 
 	UPROPERTY(EditAnywhere, Category = "Movement")
-	float MoveDistance;     // 한 칸 이동 거리 (예: 100)
+	float MoveDistance;
 
 	UPROPERTY(EditAnywhere, Category = "Movement")
-	float MaxSideDistance;  // 도로 좌우 폭 제한 (예: 500)
+	float MaxSideDistance;
 
 	bool bCanMove;
 	FTimerHandle MoveTimerHandle;
@@ -73,12 +67,21 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Game|Score")
 	int32 CurrentScore;
 
-	float MaxForwardDistance; // 최고 기록(X축 전진 거리) 저장용
+	float MaxForwardDistance;
 
 	// --- [상태 변수] ---
 	bool bIsOnLog;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
 	float LogSpeed;
+
 	bool bIsDead;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Game")
+	void StartGameOverSequence();
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Game")
+	void RequestSpawnTile();
 
 	// --- [함수들] ---
 	void MoveForward(const FInputActionValue& Value);
@@ -86,14 +89,16 @@ protected:
 	void MoveRight(const FInputActionValue& Value);
 	void MoveBackward(const FInputActionValue& Value);
 
+	// [★추가됨] 마우스 클릭 감지 함수
+	void OnMouseClicked();
+
+	// [★추가됨] 화면 입력(터치/마우스) 공통 처리 함수
+	void ProcessScreenInput(const FVector2D InputLocation);
+
 	void OnTouchPressed(const ETouchIndex::Type FingerIndex, const FVector Location);
 
 	bool TryMove(FVector Direction);
 	void ResetMove();
 	void CheckFloor();
 	void GameOver();
-
-	// 새로운 타일을 생성하라고 블루프린트(MapManager)에 요청하는 이벤트
-	UFUNCTION(BlueprintImplementableEvent, Category = "Game")
-	void RequestSpawnTile();
 };
