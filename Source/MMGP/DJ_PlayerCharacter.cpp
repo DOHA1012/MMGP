@@ -20,6 +20,7 @@ void ADJ_PlayerCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 
 	// [시간 감소 로직]
+	// 시간이 남아있을 때만 작동
 	if (TimeLeft > 0.0f)
 	{
 		TimeLeft -= DeltaTime;
@@ -27,10 +28,13 @@ void ADJ_PlayerCharacter::Tick(float DeltaTime)
 		// 매 프레임마다 블루프린트에게 시간을 업데이트하라고 신호를 보냅니다.
 		UpdateTimerUI(TimeLeft);
 
+		// 시간이 0 이하로 떨어졌다면?
 		if (TimeLeft <= 0.0f)
 		{
 			TimeLeft = 0.0f;
-			// 여기에 GameOver(); 로직 추가 가능
+
+			// [추가됨] 여기서 블루프린트의 OnGameOver 이벤트를 발동시킵니다!
+			OnGameOver();
 		}
 	}
 }

@@ -22,7 +22,11 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timer")
 	float TimeLeft;
 
-	// 블루프린트로 "야, 시간 이걸로 화면 갱신해!" 라고 신호 보내는 함수
+	// 1. 블루프린트로 "야, 시간 이걸로 화면 갱신해!" 라고 신호 보내는 함수
 	UFUNCTION(BlueprintImplementableEvent, Category = "Timer")
 	void UpdateTimerUI(float CurrentTime);
+
+	// 2. [추가됨] 블루프린트로 "야, 게임 끝났어! 결과창 띄워!" 라고 신호 보내는 함수
+	UFUNCTION(BlueprintImplementableEvent, Category = "Game Logic")
+	void OnGameOver();
 };
